@@ -2,6 +2,7 @@
 """Sync Spotify playlists to Tidal with incremental update support."""
 
 import argparse
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import json
 import os
 import sys
@@ -177,23 +178,31 @@ def sync_playlist(sp, session, spotify_playlist, state):
         playlist_state["tidal_playlist_id"] = tidal_playlist.id
         print(f"  Created Tidal playlist: {name}")
 
-    # Search and add new tracks
+    # Search for new tracks in parallel
     matched_ids = []
     newly_unmatched = []
-    for i, track in enumerate(new_tracks, 1):
-        print(f"  [{i}/{len(new_tracks)}] {track['artist']} - {track['title']}", end="")
+
+    def _search(idx, track):
+        time.sleep(idx * 0.1)  # Stagger requests slightly
         tidal_track = search_tidal_track(session, track["artist"], track["title"])
-        if tidal_track:
-            matched_ids.append(tidal_track.id)
+        return track, tidal_track
+
+    completed = 0
+    with ThreadPoolExecutor(max_workers=4) as executor:
+        futures = {
+            executor.submit(_search, i, t): t for i, t in enumerate(new_tracks)
+        }
+        for future in as_completed(futures):
+            track, tidal_track = future.result()
+            completed += 1
+            label = f"  [{completed}/{len(new_tracks)}] {track['artist']} - {track['title']}"
+            if tidal_track:
+                matched_ids.append(tidal_track.id)
+                print(f"{label} -> matched")
+            else:
+                newly_unmatched.append(f"{track['artist']} - {track['title']}")
+                print(f"{label} -> NOT FOUND")
             playlist_state["synced_spotify_track_ids"].append(track["spotify_id"])
-            print(f" -> matched")
-        else:
-            newly_unmatched.append(f"{track['artist']} - {track['title']}")
-            # Still mark as synced so we don't retry every run
-            playlist_state["synced_spotify_track_ids"].append(track["spotify_id"])
-            print(f" -> NOT FOUND")
-        # Small delay to avoid rate limiting
-        time.sleep(0.3)
 
     # Add matched tracks to Tidal playlist in batches
     if matched_ids:
