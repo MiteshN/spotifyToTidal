@@ -17,6 +17,7 @@ from spotipy.oauth2 import SpotifyOAuth
 import tidalapi
 
 STATE_FILE = Path(__file__).parent / "sync_state.json"
+VERBOSE = False
 
 
 def load_state():
@@ -189,11 +190,17 @@ def search_tidal_track(session, sp_track):
     try:
         # Phase 1: ISRC lookup (most accurate)
         if isrc:
+            if VERBOSE:
+                print(f"      ISRC lookup: {isrc}")
             results = tidal_search_with_retry(session, isrc, models=[tidalapi.media.Track], limit=5)
             candidates = results.get("tracks", results.get("top_hit", []))
             for track in candidates:
                 if hasattr(track, "isrc") and track.isrc == isrc:
+                    if VERBOSE:
+                        print(f"      ISRC matched!")
                     return track
+            if VERBOSE:
+                print(f"      ISRC not found, falling back to search")
 
         # Phase 2: Search by artist + title with smart matching
         query = normalize(f"{artist} {title}")
@@ -209,10 +216,22 @@ def search_tidal_track(session, sp_track):
                 candidates = results.get("tracks", results.get("top_hit", []))
 
         if not candidates:
+            if VERBOSE:
+                print(f"      No search results from Tidal")
             return None
+
+        if VERBOSE:
+            print(f"      Candidates from Tidal:")
+            for c in candidates:
+                c_artist = c.artist.name if c.artist else "?"
+                c_isrc = c.isrc if hasattr(c, "isrc") else "?"
+                print(f"        - {c_artist} - {c.name} (dur={c.duration}s, isrc={c_isrc})")
 
         sp_title_norm = normalize(title)
         sp_title_simple = normalize(simplify(title))
+        sp_dur = sp_track["duration_ms"]
+        if VERBOSE:
+            print(f"      Matching: title_norm='{sp_title_norm}' title_simple='{sp_title_simple}' dur={sp_dur}ms")
 
         # Pass 1: Strict match (normalized title + artist + duration + no wrong version)
         for track in candidates:
@@ -368,6 +387,8 @@ def parse_args():
                         help="Show all tracks that couldn't be found on Tidal")
     parser.add_argument("--dry-run", action="store_true",
                         help="Show what would be synced without making any changes")
+    parser.add_argument("--verbose", action="store_true",
+                        help="Show detailed matching info for debugging")
     return parser.parse_args()
 
 
@@ -396,6 +417,9 @@ def main():
                 os.environ.setdefault(key.strip(), value.strip())
 
     args = parse_args()
+
+    global VERBOSE
+    VERBOSE = args.verbose
 
     print("Spotify -> Tidal Playlist Sync")
     print("=" * 40)
