@@ -197,6 +197,15 @@ def search_tidal_track(session, sp_track):
         query = f"{artist} {title}"
         results = tidal_search_with_retry(session, query, models=[tidalapi.media.Track], limit=10)
         candidates = results.get("tracks", results.get("top_hit", []))
+
+        # If no results, retry with simplified title (strips "with X", "feat. Y", etc.)
+        if not candidates:
+            simple_title = simplify(title)
+            if simple_title != title:
+                query = f"{artist} {simple_title}"
+                results = tidal_search_with_retry(session, query, models=[tidalapi.media.Track], limit=10)
+                candidates = results.get("tracks", results.get("top_hit", []))
+
         if not candidates:
             return None
 
