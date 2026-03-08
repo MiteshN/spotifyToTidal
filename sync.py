@@ -215,8 +215,8 @@ def sync_playlist(sp, session, spotify_playlist, state):
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Sync Spotify playlists to Tidal")
-    parser.add_argument("--mine-only", action="store_true",
-                        help="Only sync playlists you created (skip followed/saved playlists)")
+    parser.add_argument("--include-followed", action="store_true",
+                        help="Also sync playlists you follow (by default only your own are synced)")
     parser.add_argument("--playlist", action="append", metavar="NAME",
                         help="Only sync playlists matching this name (can be used multiple times)")
     parser.add_argument("--unmatched", action="store_true",
@@ -227,7 +227,7 @@ def parse_args():
 def filter_playlists(playlists, sp, args):
     filtered = playlists
 
-    if args.mine_only:
+    if not args.include_followed:
         user_id = sp.current_user()["id"]
         filtered = [p for p in filtered if p["owner"]["id"] == user_id]
 
@@ -264,7 +264,7 @@ def main():
     if len(playlists) == 0:
         print("No playlists matched your filters.")
         return
-    if args.mine_only or args.playlist:
+    if not args.include_followed or args.playlist:
         print(f"Syncing {len(playlists)} playlist(s) after filtering")
 
     for playlist in playlists:

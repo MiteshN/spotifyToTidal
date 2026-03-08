@@ -39,12 +39,14 @@ Both sessions are cached after the first login.
 
 ## Options
 
-### Sync only your own playlists
+By default, only playlists you created are synced.
 
-Skip playlists you follow from other users:
+### Include followed playlists
+
+To also sync playlists you follow from other users:
 
 ```bash
-python sync.py --mine-only
+python sync.py --include-followed
 ```
 
 ### Sync specific playlists
@@ -53,12 +55,6 @@ Sync only playlists matching a name (case-insensitive, can be repeated):
 
 ```bash
 python sync.py --playlist "Chill Vibes" --playlist "Workout"
-```
-
-### Combine filters
-
-```bash
-python sync.py --mine-only --playlist "Chill Vibes"
 ```
 
 ## Re-running (Incremental Sync)
