@@ -60,6 +60,14 @@ Sync only playlists matching a name (case-insensitive, can be repeated):
 python sync.py --playlist "Chill Vibes" --playlist "Workout"
 ```
 
+### Dry run
+
+Preview what would be synced without making any changes:
+
+```bash
+python sync.py --dry-run
+```
+
 ## Re-running (Incremental Sync)
 
 Just run `python sync.py` again (with the same flags or without). The script tracks which songs have already been synced per playlist. Only new songs will be added.

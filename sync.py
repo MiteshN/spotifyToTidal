@@ -230,7 +230,7 @@ def search_tidal_track(session, sp_track):
         return None
 
 
-def sync_playlist(sp, session, spotify_playlist, state):
+def sync_playlist(sp, session, spotify_playlist, state, dry_run=False):
     sp_id = spotify_playlist["id"]
     name = spotify_playlist["name"]
     playlist_state = state["playlists"].get(sp_id, {
@@ -254,6 +254,11 @@ def sync_playlist(sp, session, spotify_playlist, state):
         return
 
     print(f"  Total: {len(sp_tracks)} | Already synced: {len(already_synced)} | New: {len(new_tracks)}")
+
+    if dry_run:
+        for i, track in enumerate(new_tracks, 1):
+            print(f"  [{i}/{len(new_tracks)}] {track['artist']} - {track['title']}")
+        return
 
     # Get or create Tidal playlist
     tidal_playlist = None
@@ -335,6 +340,8 @@ def parse_args():
                         help="Only sync playlists matching this name (can be used multiple times)")
     parser.add_argument("--unmatched", action="store_true",
                         help="Show all tracks that couldn't be found on Tidal")
+    parser.add_argument("--dry-run", action="store_true",
+                        help="Show what would be synced without making any changes")
     return parser.parse_args()
 
 
@@ -381,9 +388,13 @@ def main():
     if not args.include_followed or args.playlist:
         print(f"Syncing {len(playlists)} playlist(s) after filtering")
 
+    if args.dry_run:
+        print("\n** DRY RUN — no changes will be made **")
+
     for playlist in playlists:
-        sync_playlist(sp, session, playlist, state)
-        save_state(state)  # Save after each playlist in case of interruption
+        sync_playlist(sp, session, playlist, state, dry_run=args.dry_run)
+        if not args.dry_run:
+            save_state(state)  # Save after each playlist in case of interruption
 
     # Print summary of all unmatched tracks
     total_unmatched = 0
