@@ -202,18 +202,26 @@ def search_tidal_track(session, sp_track):
             if VERBOSE:
                 print(f"      ISRC not found, falling back to search")
 
-        # Phase 2: Search by artist + title with smart matching
-        query = normalize(f"{artist} {title}")
-        results = tidal_search_with_retry(session, query, models=[tidalapi.media.Track], limit=10)
-        candidates = results.get("tracks", results.get("top_hit", []))
+        # Build list of search queries to try
+        queries = [normalize(f"{artist} {title}")]
+        simple_title = simplify(title)
+        if simple_title != title:
+            queries.append(normalize(f"{artist} {simple_title}"))
+        # Title-only fallback (helps when artist name differs between platforms)
+        queries.append(normalize(title))
+        if simple_title != title:
+            queries.append(normalize(simple_title))
 
-        # If no results, retry with simplified title (strips "with X", "feat. Y", etc.)
-        if not candidates:
-            simple_title = simplify(title)
-            if simple_title != title:
-                query = normalize(f"{artist} {simple_title}")
-                results = tidal_search_with_retry(session, query, models=[tidalapi.media.Track], limit=10)
-                candidates = results.get("tracks", results.get("top_hit", []))
+        candidates = None
+        for query in queries:
+            results = tidal_search_with_retry(session, query, models=[tidalapi.media.Track], limit=10)
+            candidates = results.get("tracks", results.get("top_hit", []))
+            if candidates:
+                if VERBOSE:
+                    print(f"      Search query '{query}' returned {len(candidates)} results")
+                break
+            if VERBOSE:
+                print(f"      Search query '{query}' returned no results")
 
         if not candidates:
             if VERBOSE:
@@ -268,6 +276,18 @@ def search_tidal_track(session, sp_track):
                 continue
             if sp_title_simple in t_title or t_title_simple in sp_title_norm:
                 return track
+
+        # Pass 4: Title-only match with duration check (ignores artist name)
+        for track in candidates:
+            t_title = normalize(track.name)
+            if has_wrong_version(title, track.name):
+                continue
+            if sp_title_norm == t_title or sp_title_simple == normalize(simplify(track.name)):
+                if duration_close(sp_track["duration_ms"], track.duration):
+                    if VERBOSE:
+                        t_artist = track.artist.name if track.artist else "?"
+                        print(f"      Pass 4 matched (title-only): {t_artist} - {track.name}")
+                    return track
 
         return None
     except Exception as e:
