@@ -163,6 +163,21 @@ def duration_close(sp_ms, tidal_seconds):
     return abs((sp_ms / 1000) - tidal_seconds) <= 3
 
 
+def tidal_search_with_retry(session, query, models, limit, max_retries=5):
+    """Search Tidal with exponential backoff on rate limit errors."""
+    for attempt in range(max_retries):
+        try:
+            return session.search(query, models=models, limit=limit)
+        except Exception as e:
+            if "too many" in str(e).lower() or "429" in str(e):
+                wait = 2 ** attempt  # 1, 2, 4, 8, 16 seconds
+                print(f"    Rate limited, waiting {wait}s...")
+                time.sleep(wait)
+            else:
+                raise
+    return {}
+
+
 def search_tidal_track(session, sp_track):
     """Search for a track on Tidal using ISRC, then name matching."""
     isrc = sp_track.get("isrc")
@@ -172,7 +187,7 @@ def search_tidal_track(session, sp_track):
     try:
         # Phase 1: ISRC lookup (most accurate)
         if isrc:
-            results = session.search(isrc, models=[tidalapi.media.Track], limit=5)
+            results = tidal_search_with_retry(session, isrc, models=[tidalapi.media.Track], limit=5)
             candidates = results.get("tracks", results.get("top_hit", []))
             for track in candidates:
                 if hasattr(track, "isrc") and track.isrc == isrc:
@@ -180,7 +195,7 @@ def search_tidal_track(session, sp_track):
 
         # Phase 2: Search by artist + title with smart matching
         query = f"{artist} {title}"
-        results = session.search(query, models=[tidalapi.media.Track], limit=10)
+        results = tidal_search_with_retry(session, query, models=[tidalapi.media.Track], limit=10)
         candidates = results.get("tracks", results.get("top_hit", []))
         if not candidates:
             return None
