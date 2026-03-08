@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Sync Spotify playlists to Tidal with incremental update support."""
 
+import argparse
 import json
 import os
 import sys
@@ -212,6 +213,31 @@ def sync_playlist(sp, session, spotify_playlist, state):
     state["playlists"][sp_id] = playlist_state
 
 
+def parse_args():
+    parser = argparse.ArgumentParser(description="Sync Spotify playlists to Tidal")
+    parser.add_argument("--mine-only", action="store_true",
+                        help="Only sync playlists you created (skip followed/saved playlists)")
+    parser.add_argument("--playlist", action="append", metavar="NAME",
+                        help="Only sync playlists matching this name (can be used multiple times)")
+    parser.add_argument("--unmatched", action="store_true",
+                        help="Show all tracks that couldn't be found on Tidal")
+    return parser.parse_args()
+
+
+def filter_playlists(playlists, sp, args):
+    filtered = playlists
+
+    if args.mine_only:
+        user_id = sp.current_user()["id"]
+        filtered = [p for p in filtered if p["owner"]["id"] == user_id]
+
+    if args.playlist:
+        names = [n.lower() for n in args.playlist]
+        filtered = [p for p in filtered if p["name"].lower() in names]
+
+    return filtered
+
+
 def main():
     # Load .env file manually if python-dotenv isn't installed
     env_file = Path(__file__).parent / ".env"
@@ -222,6 +248,8 @@ def main():
                 key, _, value = line.partition("=")
                 os.environ.setdefault(key.strip(), value.strip())
 
+    args = parse_args()
+
     print("Spotify -> Tidal Playlist Sync")
     print("=" * 40)
 
@@ -231,6 +259,13 @@ def main():
 
     playlists = fetch_all_spotify_playlists(sp)
     print(f"\nFound {len(playlists)} Spotify playlists")
+
+    playlists = filter_playlists(playlists, sp, args)
+    if len(playlists) == 0:
+        print("No playlists matched your filters.")
+        return
+    if args.mine_only or args.playlist:
+        print(f"Syncing {len(playlists)} playlist(s) after filtering")
 
     for playlist in playlists:
         sync_playlist(sp, session, playlist, state)
@@ -248,14 +283,13 @@ def main():
         print(f"\n{total_unmatched} tracks could not be found on Tidal.")
         print("Run with --unmatched to see the full list.")
 
-    if len(sys.argv) > 1 and sys.argv[1] == "--unmatched":
+    if args.unmatched:
         print(f"\n{'='*60}")
         print("UNMATCHED TRACKS")
         print(f"{'='*60}")
         for sp_id, pstate in state["playlists"].items():
             if pstate["unmatched"]:
-                # Find playlist name
-                name = sp_id  # fallback
+                name = sp_id
                 for p in playlists:
                     if p["id"] == sp_id:
                         name = p["name"]

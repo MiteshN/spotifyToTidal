@@ -37,9 +37,33 @@ On the first run:
 
 Both sessions are cached after the first login.
 
+## Options
+
+### Sync only your own playlists
+
+Skip playlists you follow from other users:
+
+```bash
+python sync.py --mine-only
+```
+
+### Sync specific playlists
+
+Sync only playlists matching a name (case-insensitive, can be repeated):
+
+```bash
+python sync.py --playlist "Chill Vibes" --playlist "Workout"
+```
+
+### Combine filters
+
+```bash
+python sync.py --mine-only --playlist "Chill Vibes"
+```
+
 ## Re-running (Incremental Sync)
 
-Just run `python sync.py` again. The script tracks which songs have already been synced per playlist. Only new songs will be added.
+Just run `python sync.py` again (with the same flags or without). The script tracks which songs have already been synced per playlist. Only new songs will be added.
 
 ## Viewing Unmatched Tracks
 
