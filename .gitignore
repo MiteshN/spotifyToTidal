@@ -3,3 +3,4 @@ __pycache__/
 *.pyc
 sync_state.json
 .cache
+venv/

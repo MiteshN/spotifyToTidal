@@ -11,9 +11,11 @@ Sync all your Spotify playlists to Tidal. Supports incremental updates — re-ru
 - Set the redirect URI to `http://localhost:8888/callback`
 - Note your **Client ID** and **Client Secret**
 
-### 2. Install Dependencies
+### 2. Set Up Virtual Environment
 
 ```bash
+python -m venv venv
+source venv/bin/activate  # On Windows: venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
@@ -28,6 +30,7 @@ Edit `.env` and fill in your Spotify Client ID and Client Secret.
 ### 4. Run the Script
 
 ```bash
+source venv/bin/activate  # If not already activated
 python sync.py
 ```
 
