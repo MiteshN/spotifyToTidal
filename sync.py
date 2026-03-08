@@ -202,15 +202,19 @@ def search_tidal_track(session, sp_track):
             if VERBOSE:
                 print(f"      ISRC not found, falling back to search")
 
-        # Build list of search queries to try
-        queries = [normalize(f"{artist} {title}")]
+        # Build list of search queries to try (raw first, then normalized)
         simple_title = simplify(title)
+        raw_query = f"{artist} {title}"
+        norm_query = normalize(raw_query)
+        queries = [raw_query]
+        if norm_query != raw_query.lower().strip():
+            queries.append(norm_query)
         if simple_title != title:
-            queries.append(normalize(f"{artist} {simple_title}"))
+            queries.append(f"{artist} {simple_title}")
         # Title-only fallback (helps when artist name differs between platforms)
-        queries.append(normalize(title))
+        queries.append(title)
         if simple_title != title:
-            queries.append(normalize(simple_title))
+            queries.append(simple_title)
 
         candidates = None
         for query in queries:
