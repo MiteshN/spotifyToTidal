@@ -118,7 +118,9 @@ def fetch_spotify_tracks(sp, playlist_id):
 
 
 def normalize(text):
-    """Normalize text for fuzzy comparison: strip accents, lowercase, remove extras."""
+    """Normalize text for fuzzy comparison: strip accents, lowercase, normalize quotes."""
+    # Replace smart quotes/apostrophes with standard ones
+    text = text.replace("\u2018", "'").replace("\u2019", "'").replace("\u201c", '"').replace("\u201d", '"')
     text = unicodedata.normalize("NFD", text).encode("ascii", "ignore").decode("ascii")
     return text.lower().strip()
 
@@ -194,7 +196,7 @@ def search_tidal_track(session, sp_track):
                     return track
 
         # Phase 2: Search by artist + title with smart matching
-        query = f"{artist} {title}"
+        query = normalize(f"{artist} {title}")
         results = tidal_search_with_retry(session, query, models=[tidalapi.media.Track], limit=10)
         candidates = results.get("tracks", results.get("top_hit", []))
 
@@ -202,7 +204,7 @@ def search_tidal_track(session, sp_track):
         if not candidates:
             simple_title = simplify(title)
             if simple_title != title:
-                query = f"{artist} {simple_title}"
+                query = normalize(f"{artist} {simple_title}")
                 results = tidal_search_with_retry(session, query, models=[tidalapi.media.Track], limit=10)
                 candidates = results.get("tracks", results.get("top_hit", []))
 
