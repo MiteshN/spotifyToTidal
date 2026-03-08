@@ -182,15 +182,15 @@ def sync_playlist(sp, session, spotify_playlist, state):
     matched_ids = []
     newly_unmatched = []
 
-    def _search(idx, track):
-        time.sleep(idx * 0.1)  # Stagger requests slightly
+    def _search(track):
         tidal_track = search_tidal_track(session, track["artist"], track["title"])
+        time.sleep(0.5)  # Rate limit buffer
         return track, tidal_track
 
     completed = 0
     with ThreadPoolExecutor(max_workers=4) as executor:
         futures = {
-            executor.submit(_search, i, t): t for i, t in enumerate(new_tracks)
+            executor.submit(_search, t): t for t in new_tracks
         }
         for future in as_completed(futures):
             track, tidal_track = future.result()
