@@ -5,9 +5,11 @@ import argparse
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import json
 import os
+import re
 import sys
 import threading
 import time
+import unicodedata
 from pathlib import Path
 
 import spotipy
@@ -92,7 +94,7 @@ def fetch_all_spotify_playlists(sp):
 
 
 def fetch_spotify_tracks(sp, playlist_id):
-    """Return list of (artist, title, album) tuples."""
+    """Return list of track dicts with metadata for matching."""
     tracks = []
     results = sp.playlist_tracks(playlist_id, limit=100)
     while results:
@@ -100,44 +102,131 @@ def fetch_spotify_tracks(sp, playlist_id):
             track = item.get("track")
             if not track or not track.get("name"):
                 continue
-            artist = track["artists"][0]["name"] if track["artists"] else ""
+            artists = [a["name"] for a in track.get("artists", []) if a.get("name")]
+            isrc = track.get("external_ids", {}).get("isrc")
             tracks.append({
                 "spotify_id": track["id"],
-                "artist": artist,
+                "artist": artists[0] if artists else "",
+                "artists": artists,
                 "title": track["name"],
                 "album": track.get("album", {}).get("name", ""),
+                "isrc": isrc,
+                "duration_ms": track.get("duration_ms", 0),
             })
         results = sp.next(results) if results["next"] else None
     return tracks
 
 
-def search_tidal_track(session, artist, title):
-    """Search for a track on Tidal, return track object or None."""
-    query = f"{artist} {title}"
+def normalize(text):
+    """Normalize text for fuzzy comparison: strip accents, lowercase, remove extras."""
+    text = unicodedata.normalize("NFD", text).encode("ascii", "ignore").decode("ascii")
+    return text.lower().strip()
+
+
+def simplify(text):
+    """Strip content after hyphens, brackets, parentheses (e.g. 'Song - Remastered 2020' -> 'Song')."""
+    text = re.split(r"\s*[-(\[]", text)[0]
+    return text.strip()
+
+
+WRONG_VERSION_TAGS = {"instrumental", "acapella", "remix", "live", "acoustic", "karaoke"}
+
+
+def has_wrong_version(sp_title, tidal_title):
+    """Check if one title has a version tag the other doesn't."""
+    sp_lower = normalize(sp_title)
+    t_lower = normalize(tidal_title)
+    for tag in WRONG_VERSION_TAGS:
+        sp_has = tag in sp_lower
+        t_has = tag in t_lower
+        if sp_has != t_has:
+            return True
+    return False
+
+
+def artists_match(sp_artists, tidal_artist_name):
+    """Check if any Spotify artist matches the Tidal artist."""
+    tidal_parts = {normalize(a.strip()) for a in re.split(r"[,&]", tidal_artist_name)}
+    sp_parts = {normalize(a.strip()) for a in sp_artists}
+    # Check for any intersection or substring match
+    for sp_a in sp_parts:
+        for t_a in tidal_parts:
+            if sp_a in t_a or t_a in sp_a:
+                return True
+    return False
+
+
+def duration_close(sp_ms, tidal_seconds):
+    """Check if durations are within 3 seconds of each other."""
+    if not sp_ms or not tidal_seconds:
+        return True  # Skip check if data missing
+    return abs((sp_ms / 1000) - tidal_seconds) <= 3
+
+
+def search_tidal_track(session, sp_track):
+    """Search for a track on Tidal using ISRC, then name matching."""
+    isrc = sp_track.get("isrc")
+    artist = sp_track["artist"]
+    title = sp_track["title"]
+
     try:
-        results = session.search(query, models=[tidalapi.media.Track], limit=5)
+        # Phase 1: ISRC lookup (most accurate)
+        if isrc:
+            results = session.search(isrc, models=[tidalapi.media.Track], limit=5)
+            candidates = results.get("tracks", results.get("top_hit", []))
+            for track in candidates:
+                if hasattr(track, "isrc") and track.isrc == isrc:
+                    return track
+
+        # Phase 2: Search by artist + title with smart matching
+        query = f"{artist} {title}"
+        results = session.search(query, models=[tidalapi.media.Track], limit=10)
         candidates = results.get("tracks", results.get("top_hit", []))
         if not candidates:
             return None
 
-        # Try to find exact-ish match
-        artist_lower = artist.lower()
-        title_lower = title.lower()
-        for track in candidates:
-            t_artist = track.artist.name.lower() if track.artist else ""
-            t_title = track.name.lower()
-            if title_lower in t_title and artist_lower in t_artist:
-                return track
+        sp_title_norm = normalize(title)
+        sp_title_simple = normalize(simplify(title))
 
-        # Fall back to first result if artist matches
+        # Pass 1: Strict match (normalized title + artist + duration + no wrong version)
         for track in candidates:
-            t_artist = track.artist.name.lower() if track.artist else ""
-            if artist_lower in t_artist or t_artist in artist_lower:
+            t_artist = track.artist.name if track.artist else ""
+            t_title = normalize(track.name)
+            if has_wrong_version(title, track.name):
+                continue
+            if not artists_match(sp_track["artists"], t_artist):
+                continue
+            if sp_title_norm in t_title or t_title in sp_title_norm:
+                if duration_close(sp_track["duration_ms"], track.duration):
+                    return track
+
+        # Pass 2: Simplified title match (strips remaster/deluxe/etc.)
+        for track in candidates:
+            t_artist = track.artist.name if track.artist else ""
+            t_title_simple = normalize(simplify(track.name))
+            if has_wrong_version(title, track.name):
+                continue
+            if not artists_match(sp_track["artists"], t_artist):
+                continue
+            if sp_title_simple == t_title_simple:
+                if duration_close(sp_track["duration_ms"], track.duration):
+                    return track
+
+        # Pass 3: Relaxed - artist match + title contains (no duration check)
+        for track in candidates:
+            t_artist = track.artist.name if track.artist else ""
+            t_title = normalize(track.name)
+            t_title_simple = normalize(simplify(track.name))
+            if has_wrong_version(title, track.name):
+                continue
+            if not artists_match(sp_track["artists"], t_artist):
+                continue
+            if sp_title_simple in t_title or t_title_simple in sp_title_norm:
                 return track
 
         return None
     except Exception as e:
-        print(f"    Search error for '{query}': {e}")
+        print(f"    Search error for '{artist} - {title}': {e}")
         return None
 
 
@@ -185,7 +274,7 @@ def sync_playlist(sp, session, spotify_playlist, state):
     lock = threading.Lock()
 
     def _search(track):
-        tidal_track = search_tidal_track(session, track["artist"], track["title"])
+        tidal_track = search_tidal_track(session, track)
         time.sleep(0.5)  # Rate limit buffer
         return track, tidal_track
 
