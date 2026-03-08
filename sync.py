@@ -208,12 +208,14 @@ def sync_playlist(sp, session, spotify_playlist, state):
                 playlist_state["synced_spotify_track_ids"].append(track["spotify_id"])
 
     # Add matched tracks to Tidal playlist in smaller batches
+    # Re-fetch playlist before each batch to get fresh ETag (avoids 412 errors)
     if matched_ids:
         added = 0
         batch_size = 20
         for i in range(0, len(matched_ids), batch_size):
             batch = matched_ids[i:i + batch_size]
             try:
+                tidal_playlist = session.playlist(tidal_playlist.id)
                 tidal_playlist.add(batch)
                 added += len(batch)
             except Exception as e:
@@ -221,6 +223,7 @@ def sync_playlist(sp, session, spotify_playlist, state):
                 # Retry individually for failed batch
                 for track_id in batch:
                     try:
+                        tidal_playlist = session.playlist(tidal_playlist.id)
                         tidal_playlist.add([track_id])
                         added += 1
                     except Exception:
