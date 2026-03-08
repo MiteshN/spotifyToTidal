@@ -6,6 +6,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 import json
 import os
 import sys
+import threading
 import time
 from pathlib import Path
 
@@ -181,6 +182,7 @@ def sync_playlist(sp, session, spotify_playlist, state):
     # Search for new tracks in parallel
     matched_ids = []
     newly_unmatched = []
+    lock = threading.Lock()
 
     def _search(track):
         tidal_track = search_tidal_track(session, track["artist"], track["title"])
@@ -196,24 +198,35 @@ def sync_playlist(sp, session, spotify_playlist, state):
             track, tidal_track = future.result()
             completed += 1
             label = f"  [{completed}/{len(new_tracks)}] {track['artist']} - {track['title']}"
-            if tidal_track:
-                matched_ids.append(tidal_track.id)
-                print(f"{label} -> matched")
-            else:
-                newly_unmatched.append(f"{track['artist']} - {track['title']}")
-                print(f"{label} -> NOT FOUND")
-            playlist_state["synced_spotify_track_ids"].append(track["spotify_id"])
+            with lock:
+                if tidal_track:
+                    matched_ids.append(tidal_track.id)
+                    print(f"{label} -> matched")
+                else:
+                    newly_unmatched.append(f"{track['artist']} - {track['title']}")
+                    print(f"{label} -> NOT FOUND")
+                playlist_state["synced_spotify_track_ids"].append(track["spotify_id"])
 
-    # Add matched tracks to Tidal playlist in batches
+    # Add matched tracks to Tidal playlist in smaller batches
     if matched_ids:
-        batch_size = 50
+        added = 0
+        batch_size = 20
         for i in range(0, len(matched_ids), batch_size):
             batch = matched_ids[i:i + batch_size]
             try:
                 tidal_playlist.add(batch)
+                added += len(batch)
             except Exception as e:
-                print(f"  Error adding batch: {e}")
-        print(f"  Added {len(matched_ids)} tracks to Tidal")
+                print(f"  Error adding batch {i//batch_size + 1}: {e}")
+                # Retry individually for failed batch
+                for track_id in batch:
+                    try:
+                        tidal_playlist.add([track_id])
+                        added += 1
+                    except Exception:
+                        print(f"  Failed to add track {track_id}")
+            time.sleep(0.5)
+        print(f"  Added {added}/{len(matched_ids)} tracks to Tidal")
 
     if newly_unmatched:
         playlist_state["unmatched"].extend(newly_unmatched)
